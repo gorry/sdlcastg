@@ -115,11 +115,9 @@ private:
 	void EncodeAudioChunk(const int16_t *pcm);
 	void EncodeVideo(const Frame *f, int64_t ptsMs, bool forceKey);
 	void ConvertToI420(const Frame &f);
-	int64_t SlotOf(int64_t ms) const;
 	// エンコードした塊を時刻順に並べてから WebM へ書く（下の out*_）。
 	void QueuePacket(int track, int64_t timeMs, bool key, const void *data, size_t size);
 	void WriteOrdered(int64_t limitMs);
-	int64_t StreamNowMsLocked() const;
 	int64_t SlotMs(int64_t slot) const;
 	void FlushClusters();
 
@@ -138,7 +136,7 @@ private:
 	uint64_t submittedFrames_;            // 渡された音声のフレーム数（無音の足し分を含む）
 	int64_t lastSubmitWallMs_;            // 最後に音声を渡された実時間
 	std::deque<std::unique_ptr<Frame> > frames_;  // 差し込み待ちの映像
-	int64_t lastWantSlot_;                // 最後に映像を受け取った枠（下の SlotOf）
+	double nextWantMs_;                   // 次に映像を受け取る予定の実時間（NowMs。0 なら未定）
 
 	// エンコードのスレッドだけが触る
 	uint64_t encodedFrames_;              // エンコードした音声のフレーム数

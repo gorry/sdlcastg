@@ -78,7 +78,7 @@ struct StreamEncoder::Codecs {
 
 StreamEncoder::StreamEncoder()
     : codecs_(0), running_(false), quit_(false), submittedFrames_(0), lastSubmitWallMs_(0),
-      lastWantSlot_(-1), encodedFrames_(0), startWallMs_(0), lastVideoMs_(-1), lastVideoSlot_(-1),
+      nextWantMs_(0), encodedFrames_(0), startWallMs_(0), lastVideoMs_(-1), lastVideoSlot_(-1),
       haveLastImage_(false) {}
 
 StreamEncoder::~StreamEncoder() {
@@ -166,7 +166,7 @@ bool StreamEncoder::Start(const StreamConfig &cfgIn, std::string *err) {
 	stats_ = StreamStats();
 	startWallMs_ = NowMs();
 	lastSubmitWallMs_ = 0;
-	lastWantSlot_ = -1;
+	nextWantMs_ = 0;
 	i420_.assign((size_t)cfg_.width * cfg_.height * 3 / 2, 0);
 
 	quit_ = false;
@@ -204,30 +204,24 @@ void StreamEncoder::SubmitAudio(const int16_t *pcm, int frames) {
 // 映像の時刻は fps の格子（枠）に載せる。枠 n の時刻は n * 1000 / fps (ms)。
 // 渡された時刻のままだと、呼ぶ側の周期の揺れがそのまま入り（30fps で 20〜47ms 間隔）、
 // 受信側（TV）で映像が音から少しずつ遅れては合わせ直す動きになった（docs/design.md）。
-int64_t StreamEncoder::SlotOf(int64_t ms) const {
-	return ms * cfg_.fps / 1000;
-}
-
 int64_t StreamEncoder::SlotMs(int64_t slot) const {
 	return slot * 1000 / cfg_.fps;
 }
 
-// いまの流れの時刻の見積もり（鍵を持って呼ぶ）。渡された音声の長さに、最後に
-// 渡されてからの経過を足す（kStarveMs まで）。音声はまとめて来る（Android の
-// AAudio は 2048 フレーム＝43ms ずつ）ので、長さだけで枠を数えると、映像を
-// 受け取れるのが音声の来た直後だけになり、30fps に届かなかった。
-int64_t StreamEncoder::StreamNowMsLocked() const {
-	const int64_t audioMs = FramesToMs(submittedFrames_);
-	if (lastSubmitWallMs_ == 0) return audioMs;
-	const int64_t since = NowMs() - lastSubmitWallMs_;
-	return audioMs + std::max<int64_t>(0, std::min<int64_t>(since, kStarveMs));
-}
-
-// 流れの時計が次の枠に入ったら受け取る。
+// 受け取る頃合いは、実時間で「次に受け取る予定」を持って決める。予定の半枠
+// 手前から受け取り、受け取ったら予定を 1 枠ぶん進める（受け取った時刻からではなく、
+// 予定から進めるので、平均はちょうど fps になる）。
+// 以前は「流れの時計が次の枠に入ったら」受け取っていた。呼ぶ側の描画が同じ
+// 60Hz だと、両方の揺れで 1 つの枠に 2 回来て 2 回目を断り、次の枠には誰も
+// 来ないことが続き、60fps を頼んでも 41fps しか受け取れなかった。演奏していない
+// ときは流れの時計が無音の足しでしか進まず、28fps だった（Pixel 7a、2026-09-26）。
+// 絵の時刻（ptsMs）は呼ぶ側が決めるもので、ここは受け取る回数だけを決める。
 bool StreamEncoder::WantVideoFrame() const {
 	if (!running_) return false;
 	std::lock_guard<std::mutex> lock(mutex_);
-	return SlotOf(StreamNowMsLocked()) > lastWantSlot_;
+	if (nextWantMs_ <= 0) return true;
+	const double period = 1000.0 / cfg_.fps;
+	return (double)NowMs() >= nextWantMs_ - period * 0.5;
 }
 
 int64_t StreamEncoder::submittedAudioMs() const {
@@ -250,7 +244,14 @@ void StreamEncoder::SubmitVideoRGBA(const void *pixels, int width, int height, i
 
 	std::lock_guard<std::mutex> lock(mutex_);
 	const int64_t audioNow = FramesToMs(submittedFrames_);
-	lastWantSlot_ = std::max(lastWantSlot_, SlotOf(StreamNowMsLocked()));
+	{
+		// 次に受け取る予定を 1 枠進める。遅れていたら（しばらく渡されなかった）、
+		// 取り戻そうと続けて受け取らないよう、いまから数え直す。
+		const double period = 1000.0 / cfg_.fps;
+		const double now = (double)NowMs();
+		nextWantMs_ = (nextWantMs_ <= 0) ? now + period : nextWantMs_ + period;
+		if (nextWantMs_ < now) nextWantMs_ = now + period;
+	}
 
 	if (ptsMs < 0 || ptsMs > audioNow + kMaxVideoLeadMs) ptsMs = audioNow;
 	if (!frames_.empty() && ptsMs < frames_.back()->ptsMs) ptsMs = frames_.back()->ptsMs;
