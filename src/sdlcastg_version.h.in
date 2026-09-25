@@ -1,0 +1,17 @@
+/* sdlcastg - 版（CMake が Profile.ini から生成する）
+ *
+ * **このファイルは生成物。直接編集しない。** 値を変えるときは sdlcastg/Profile.ini
+ * （著作者専用）の [Version]。生成元は src/sdlcastg_version.h.in、生成先は
+ * <ビルド先>/generated/。
+ *
+ *   [Version] Text   → SDLCASTG_VERSION         （"2026.0925.1" の形）
+ *   [Version] Number → SDLCASTG_VERSION_NUMBER  （202609251 の形。大小を比べられる）
+ */
+
+#ifndef SDLCASTG_VERSION_H
+#define SDLCASTG_VERSION_H
+
+#define SDLCASTG_VERSION "@SDLCASTG_VERSION_TEXT@"
+#define SDLCASTG_VERSION_NUMBER @SDLCASTG_VERSION_NUMBER@
+
+#endif /* SDLCASTG_VERSION_H */
