@@ -1,0 +1,4 @@
+# テキストは、どの OS で取り出しても改行を LF にする
+# （Windows の core.autocrlf=true でも CRLF にしない）。
+* text=auto eol=lf
+*.patch -text
