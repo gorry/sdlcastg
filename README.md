@@ -1,124 +1,124 @@
 # sdlcastg
 
-**Send the screen and sound of an SDL2 application to a Google Cast device** (a TV with Chromecast built-in, a Chromecast dongle, a Nest Hub, …) — from Windows and Android, with no Google SDK.
+English: [README.en.md](README.en.md) — Send the screen and sound of an SDL2 application to a Google Cast device (TV with Chromecast built-in, Chromecast, Nest Hub, …) from Windows and Android, with no Google SDK.
 
-[日本語](README.ja.md)
+**SDL2 のアプリの画面と音を、Google Cast 対応機器（Chromecast 内蔵の TV、Chromecast、Nest Hub など）へ送るライブラリ**です。Windows と Android で動き、Google の SDK は使いません。
 
-sdlcastg encodes what your app draws and plays into a live WebM stream (VP8 video + Opus audio). It serves the stream over HTTP from inside the app and asks the device's **Default Media Receiver** to play it. It is a small C library with a thin SDL2 layer on top. It was written for [mxv2](https://github.com/gorry/mxv2), an MDX music player, and is used there to show the player on a TV.
+アプリが描いた絵と鳴らした音を、その場で WebM（映像 VP8 + 音声 Opus）にエンコードします。できた流れをアプリの中の HTTP サーバーで配り、受信側の **Default Media Receiver**（標準の受信アプリ）に再生させます。C のライブラリと、その上の薄い SDL2 の層からなります。MDX プレーヤー [mxv2](https://github.com/gorry/mxv2) のために作り、mxv2 ではプレーヤーの画面を TV に出すのに使っています。
 
-sdlcastg is an unofficial sender. It is not affiliated with or endorsed by Google. "Google Cast" and "Chromecast" are trademarks of Google LLC.
+非公式の送信側です。Google とは関係がなく、Google の承認も受けていません。「Google Cast」「Chromecast」は Google LLC の商標です。
 
-## What it does
+## できること
 
-- **Discovery**: finds devices with mDNS (`_googlecast._tcp`). It gets each device's name, model, address, and whether it has a screen.
-- **Control**: talks Cast V2 over TLS. It launches the Default Media Receiver (`CC1AD845`), loads the stream, follows the player state, and sets the volume. The heartbeat is handled for you.
-- **Live streaming**: encodes RGBA frames and 48 kHz stereo int16 PCM in real time. Audio is the clock, and video frames carry timestamps on the same clock, so picture and sound stay in sync on the TV. The encoder threads, the WebM muxer and the HTTP server are all inside.
-- **SDL2 layer**: reads back an `SDL_Renderer`, converts any `SDL_AudioSpec`, and takes the Wi-Fi multicast lock on Android.
-- **Plain casting**: plays a URL or a local file (served by the built-in HTTP server) on the device.
+- **探す**: mDNS（`_googlecast._tcp`）で機器を探し、名前・機種・アドレス・画面の有無を得ます。
+- **操る**: TLS の上の Cast V2 で話します。Default Media Receiver（`CC1AD845`）を起こし、流れを読み込ませ、再生の状態を追い、音量を変えます。心拍の応答はライブラリがします。
+- **その場で流す**: RGBA の絵と 48kHz ステレオの int16 の音を、実時間でエンコードします。音声を時計にし、絵にも同じ時計の時刻を付けるので、TV でも絵と音がそろいます。エンコードのスレッド、WebM の書き出し、HTTP サーバーは中にあります。
+- **SDL2 の層**: `SDL_Renderer` の読み出し、どんな `SDL_AudioSpec` の音でも受ける変換、Android の Wi-Fi のマルチキャストのロックを受け持ちます。
+- **ふつうのキャスト**: URL や手元のファイル（中の HTTP サーバーで配る）を再生させることもできます。
 
-Compared with the screen mirroring built into Android:
-- Only your app's picture reaches the TV. Unrelated notifications do not.
-- The stream goes over TCP with a few seconds of buffering on the receiver, so it rarely stutters.
+Android の OS にある画面のミラーと比べると、次の違いがあります。
+- TV に出るのはアプリの画面だけで、関係のない通知は映りません。
+- TCP で送り、受信側が数秒ぶん溜めるので、途切れにくくなります。
 
-The price is **latency: the TV shows everything about 4 seconds late**. That is fine for a player, but not for a game.
+その代わり、**TV には 4 秒ほど遅れて出ます**。視聴用なら困りませんが、ゲームプレイ用には向きません。
 
-## Status
+## 状態
 
-Young. The API may still change between versions. Tested with:
+まだ若いライブラリで、版が変わると API も変わることがあります。確かめた組み合わせは次のとおりです。
 
-| Sender | Receiver |
+| 送る側 | 受信側 |
 |---|---|
-| Windows 11 x64 (Visual Studio 2022) | TV with Chromecast built-in (Android TV) |
-| Android 8.0 – 17 (arm64-v8a, armeabi-v7a) | same |
+| Windows 11 x64（Visual Studio 2022） | Chromecast 内蔵の TV（Android TV） |
+| Android 8.0〜17（arm64-v8a、armeabi-v7a） | 同上 |
 
-Linux may work (the POSIX code paths are shared with Android) but has not been tried. macOS needs a change for `SIGPIPE`.
+Linux は、Android と同じ POSIX の書き方なので動く見込みですが、試していません。macOS では SIGPIPE の対策を直す必要があります。
 
-## Minimal use (SDL2)
+## 最小の使い方（SDL2）
 
 ```c
 #include "sdlcastg_sdl.h"
 
 SDLCastG_Init();
 
-/* 1. find devices */
+/* 1. 探す */
 SDLCastG_StartDiscoverySDL();
 SDL_Delay(3000);
 SDLCastG_Device list[16];
 int n = SDLCastG_GetDevices(list, 16);
 SDLCastG_StopDiscoverySDL();
 
-/* 2. connect and start streaming (connect blocks until the TLS handshake is done) */
+/* 2. つないで流し始める（Connect は TLS の握手まで待つ） */
 SDLCastG_Connect(list[0].address, list[0].port);
-/* ... wait until SDLCastG_GetStatus() reports something other than SDLCASTG_CONNECTING ... */
+/* …… SDLCastG_GetStatus() が SDLCASTG_CONNECTING でなくなるまで待つ …… */
 SDLCastG_StreamConfig cfg;
-SDLCastG_DefaultStreamConfig(&cfg);   /* 1280x720, 30 fps */
+SDLCastG_DefaultStreamConfig(&cfg);   /* 1280x720、30fps */
 cfg.title = "My App";
 SDLCastG_StartStream(&cfg);
 
-/* 3a. audio: from your audio callback, in whatever format you opened */
+/* 3a. 音: 音声のコールバックから、開いたときの形式のまま */
 SDLCastG_SubmitAudioSDL(buffer, bytes, &obtainedSpec);
 
-/* 3b. video: every frame, around your drawing */
+/* 3b. 絵: 毎フレーム、描く処理を挟んで */
 SDLCastG_BeginRendererFrame(renderer);
-/* ... draw as usual ... */
-SDLCastG_EndRendererFrame(renderer, NULL, -1);  /* -1 = "now"; or the time of the sound you are showing */
+/* …… いつもどおり描く …… */
+SDLCastG_EndRendererFrame(renderer, NULL, -1);  /* -1 は「いま」。見せている音の時刻を渡してもよい */
 SDL_RenderPresent(renderer);
 
-/* 4. stop */
+/* 4. やめる */
 SDLCastG_StopStream();
 SDLCastG_StopApp();
 SDLCastG_Disconnect();
 SDLCastG_Quit();
 ```
 
-- `tools/sdlcastgdemo.cpp` is a complete, small program.
-- mxv2's [`src/cast.cpp`](https://github.com/gorry/mxv2/blob/main/src/cast.cpp) is a real integration. It runs connecting on a worker thread, mutes local sound while casting, follows the TV remote's pause and play, and recovers when the receiver gets stuck.
-- All functions are thread-safe. Strings are UTF-8. One device at a time.
+- `tools/sdlcastgdemo.cpp` が、動く小さな見本です。
+- mxv2 の [`src/cast.cpp`](https://github.com/gorry/mxv2/blob/main/src/cast.cpp) が実際の組み込みの例です。つなぐ処理を別スレッドで行い、送っている間は手元の音を消し、TV のリモコンの一時停止・再開に追従し、受信側が詰まったときに立て直します。
+- 関数はどのスレッドから呼んでもかまいません。文字列は UTF-8 です。同時につなげるのは 1 台です。
 
-### Things to know
+### 知っておくこと
 
-- **Timing.** The stream time is the amount of audio you have submitted. If your picture follows the sound that is *currently audible* (not the sound you last queued), pass that time as `ptsMs`. The receiver then keeps them together. `SDLCastG_StreamTimeMs()` tells you the current stream time.
-- **Readback cost.** Reading a full phone screen back from the GPU can take 20 ms or more. `SDLCastG_BeginRendererFrame` / `SDLCastG_EndRendererFrame` make SDL draw into a texture while streaming, then downscale it on the GPU before reading. When not streaming they do nothing. If you switch render targets in between, restore the *previous* target, not `NULL`.
-- **Minimum bit rate.** A mostly still picture compresses so well that the receiver starves and stutters. The stream is padded to `minKbps` (default 1000) with WebM `Void` elements.
-- **The receiver's remote.** A live stream cannot really be paused or sought. The receiver's player state (`SDLCastG_GetStatus`, including `prevPlayerState`) shows what the user did on the TV. `SDLCastG_ReloadStream` and `SDLCastG_SeekToLive` help you recover. See mxv2's `cast.cpp` for one policy.
-- **Firewall.** The receiver fetches the stream from an HTTP server inside your app. On Windows, the first run asks for firewall permission. If it is denied, the TV waits forever (the spinner never stops). Consider a timeout that checks `SDLCastG_GetStreamStats().clients`.
-- **Security.** The receiver's certificate is self-signed and is not verified. The HTTP server listens on all interfaces while streaming.
-- **Android.**
-  - Add `INTERNET` and `CHANGE_WIFI_MULTICAST_STATE` to your manifest. Without the multicast lock, some phones never see the mDNS answers.
-  - Link with the same `c++_static` STL.
-  - The library takes its TLS entropy from `/dev/urandom`: `getrandom(2)` blocked for minutes on an old 3.18 kernel.
-  - Bigger frames cost more CPU. 854x480 at 30 fps is a good default for phones.
+- **時刻**: 流れの時刻は、渡した音の長さです。絵が「いま聞こえている音」（最後に渡した音ではなく）に合わせて描かれているなら、その音の時刻を `ptsMs` に渡してください。受信側で絵と音がそろいます。今の流れの時刻は `SDLCastG_StreamTimeMs()` で分かります。
+- **読み出しの重さ**: スマートフォンの画面を GPU からまるごと読み出すと、20ms 以上かかることがあります。`SDLCastG_BeginRendererFrame` / `SDLCastG_EndRendererFrame` を使うと、流している間は SDL にテクスチャへ描かせ、GPU で縮めてから読み出します。流していなければ何もしません。間で描画先を切り替えるときは、戻す先を `NULL` ではなく**元の描画先**にしてください。
+- **流す量の下限**: ほとんど止まった絵は小さく縮みすぎ、受信側の読み込みが詰まって再生が止まります。そのため、WebM の `Void`（読み飛ばされる詰め物）で `minKbps`（既定 1000）まで埋めます。
+- **受信側のリモコン**: ライブの流れは本当には一時停止も早送りもできません。TV で何をされたかは受信側の再生の状態（`SDLCastG_GetStatus`。`prevPlayerState` も）から推し量ります。立て直しには `SDLCastG_ReloadStream` と `SDLCastG_SeekToLive` を使います。どう扱うかの一例は mxv2 の `cast.cpp` にあります。
+- **ファイアウォール**: 受信側は、アプリの中の HTTP サーバーへ流れを取りに来ます。Windows では初回にファイアウォールの許可を求められ、拒否すると TV はくるくるのまま待ち続けます。`SDLCastG_GetStreamStats()` の `clients` を見て、時間切れにするとよいでしょう。
+- **安全性**: 受信側の証明書は自己署名なので、検証しません。流している間、HTTP サーバーはすべての口で待ち受けます。
+- **Android**:
+  - マニフェストに `INTERNET` と `CHANGE_WIFI_MULTICAST_STATE` が要ります。マルチキャストのロックを取らないと、mDNS の応答が届かない端末があります。
+  - STL はライブラリと同じ `c++_static` にしてください。
+  - TLS の乱数の種は `/dev/urandom` から取ります。古いカーネル（3.18）の端末では、`getrandom(2)` が何分も止まったためです。
+  - 送る絵が大きいほど CPU を食います。スマートフォンなら 854x480・30fps が目安です。
 
-## Building
+## ビルド
 
-See [BUILD.md](BUILD.md) ([日本語](BUILD.ja.md)). In short:
-- **mbedTLS 3.6** is built from source together with the library.
-- **libvpx, Opus and libyuv** are built with vcpkg. Triplets for Android and a NEON-enabled libvpx port are included.
-- **SDL2** is needed only for the SDL layer and the demo.
+[BUILD.md](BUILD.md)（[English](BUILD.en.md)）を見てください。要点は次のとおりです。
+- **mbedTLS 3.6** は、ソースからライブラリと一緒にビルドします。
+- **libvpx・Opus・libyuv** は vcpkg で作ります。Android 用の triplet と、NEON を使うように直した libvpx の移植を同梱しています。
+- **SDL2** が要るのは、SDL の層と見本だけです。
 
-To use it from your project:
+自分のプロジェクトから使うときは次のようにします。
 
 ```cmake
-set(SDLCASTG_MBEDTLS_DIR "${CMAKE_SOURCE_DIR}/third_party/mbedtls-3.6.7")        # optional
-set(SDLCASTG_VCPKG_INSTALLED_DIR "${CMAKE_SOURCE_DIR}/third_party/vcpkg_installed") # optional
+set(SDLCASTG_MBEDTLS_DIR "${CMAKE_SOURCE_DIR}/third_party/mbedtls-3.6.7")        # 任意
+set(SDLCASTG_VCPKG_INSTALLED_DIR "${CMAKE_SOURCE_DIR}/third_party/vcpkg_installed") # 任意
 add_subdirectory(sdlcastg)
-target_link_libraries(myapp PRIVATE sdlcastg_sdl)   # or sdlcastg without SDL
+target_link_libraries(myapp PRIVATE sdlcastg_sdl)   # SDL を使わないなら sdlcastg
 ```
 
-If your project already has a target named `sdl2`, the SDL layer uses it.
+取り込む側に `sdl2` という名前のターゲットがあれば、SDL の層はそれを使います。
 
-## Sample programs
+## 見本
 
-| Program | What it does |
+| プログラム | すること |
 |---|---|
-| `castplay` | List devices, show a device's status, play a file or URL, or stream a generated test picture and tone (`--live`). Runs in an Android shell too. |
-| `sdlcastgdemo` | Draws with SDL2 and streams it, with a beep and a white square every second to check audio/video sync. |
-| `sdlcastg_encodetest` | Encodes to a WebM file without a receiver (for ffprobe / ffmpeg), and benchmarks the encoder. |
+| `castplay` | 機器を探す、1 台の状態を見る、ファイルや URL を再生させる、作った絵と音を流す（`--live`）。Android の端末のシェルでも動きます。 |
+| `sdlcastgdemo` | SDL2 で描いた絵を流します。毎秒の頭にビープと白い四角を出すので、絵と音のずれを確かめられます。 |
+| `sdlcastg_encodetest` | 受信側なしで WebM のファイルへ書き出し（ffprobe / ffmpeg で確かめる用）、エンコーダーの重さも測ります。 |
 
-## Design notes
+## 設計のメモ
 
-[docs/design.md](docs/design.md) (in Japanese) explains how it works and what went wrong on the way: latency, timestamps, receiver quirks, and Android pitfalls.
+[docs/design.md](docs/design.md) に、仕組みと、作る途中でつまずいたこと（遅れ、時刻の付け方、受信側のくせ、Android の落とし穴）を書いています。
 
-## License
+## ライセンス
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The third-party libraries are listed in NOTICE.
+Apache License 2.0 です。[LICENSE](LICENSE) と [NOTICE](NOTICE) を見てください。使っている第三者のライブラリは NOTICE にあります。

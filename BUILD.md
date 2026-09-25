@@ -1,45 +1,45 @@
-# Building sdlcastg
+# sdlcastg のビルド
 
-[日本語](BUILD.ja.md)
+English: [BUILD.en.md](BUILD.en.md)
 
-## Requirements
+## 用意するもの
 
-- CMake 3.20 or later, and a C++11 compiler
-  - Windows: Visual Studio 2022 (x64)
-  - Android: NDK r28 (tested with 28.2.13676358), Ninja
-- [vcpkg](https://github.com/microsoft/vcpkg) to build libvpx, Opus and libyuv
-- Git Bash or another POSIX shell for the commands below (they work in PowerShell with small changes)
+- CMake 3.20 以降と、C++11 のコンパイラ
+  - Windows: Visual Studio 2022（x64）
+  - Android: NDK r28（28.2.13676358 で確認）、Ninja
+- libvpx・Opus・libyuv を作るための [vcpkg](https://github.com/microsoft/vcpkg)
+- 下のコマンドを打つ Git Bash など POSIX のシェル（PowerShell でも少し直せば使えます）
 
-Third-party code is not in this repository. By default it is looked for under `third_party/`:
+第三者のコードはこのリポジトリに入っていません。既定では `third_party/` の下を探します。
 
 ```
 sdlcastg/
     third_party/
-        mbedtls-3.6.7/      TLS (built from source together with sdlcastg)
-        vcpkg_installed/    libvpx, Opus, libyuv (one folder per triplet, made by vcpkg)
-        SDL2-2.32.10/       SDL2 for Visual C++ (Windows, for the SDL layer and the demo)
+        mbedtls-3.6.7/      TLS（sdlcastg と一緒にソースからビルド）
+        vcpkg_installed/    libvpx・Opus・libyuv（vcpkg が作る。triplet ごとのフォルダ）
+        SDL2-2.32.10/       Visual C++ 用の SDL2（Windows。SDL の層と見本に使う）
 ```
 
-Every location can be changed with a CMake variable (see [CMake variables](#cmake-variables)).
+置き場所は、どれも CMake の変数で変えられます（[CMake の変数](#cmake-の変数)）。
 
 ## mbedTLS 3.6.7
 
-Download **`mbedtls-3.6.7.tar.bz2`** from <https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.7>. Use the release archive, which contains generated files; a git clone does not. Extract it into `third_party/`. You can check it against `mbedtls-3.6.7-sha256sum.txt` on the same page (`a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`).
+<https://github.com/Mbed-TLS/mbedtls/releases/tag/mbedtls-3.6.7> から **`mbedtls-3.6.7.tar.bz2`** を取ってきて、`third_party/` へ展開します。生成済みのファイルが入ったリリース版を使ってください（git のクローンには入っていません）。同じページの `mbedtls-3.6.7-sha256sum.txt` で照合できます（`a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`）。
 
 ```sh
 tar --force-local -xjf mbedtls-3.6.7.tar.bz2 -C third_party
 ```
 
-sdlcastg builds only the static libraries and does not modify the sources. On Android it passes `MBEDTLS_USER_CONFIG_FILE` (`src/mbedtls_user_config.h`), so that entropy comes from `/dev/urandom`.
+sdlcastg は静的ライブラリだけを作り、ソースは書き換えません。Android では `MBEDTLS_USER_CONFIG_FILE`（`src/mbedtls_user_config.h`）を渡し、乱数の種を `/dev/urandom` から取らせます。
 
-## libvpx / Opus / libyuv (vcpkg)
+## libvpx / Opus / libyuv（vcpkg）
 
-libvpx has its own configure script and is hard to build directly with MSVC or the NDK, so all three are built with vcpkg. They go into `third_party/vcpkg_installed/` and leave vcpkg's own `installed/` alone. Tested with libvpx 1.16.0, Opus 1.5.2 and libyuv 1916. libyuv pulls in libjpeg-turbo, which sdlcastg does not link.
+libvpx は独自の configure で作るため、MSVC や NDK から直にはビルドしにくいので、3 つとも vcpkg で作ります。入れ先は `third_party/vcpkg_installed/` で、vcpkg 本体の `installed/` は汚しません。libvpx 1.16.0 / Opus 1.5.2 / libyuv 1916 で確かめています。libyuv に付いてくる libjpeg-turbo はリンクしません。
 
-Use vcpkg's **classic mode** (`--classic`). In manifest mode the install root holds only one triplet, so installing the Android libraries removes the Windows ones.
+vcpkg は**クラシックモード**（`--classic`）で使います。マニフェストモードだと入れ先に triplet が 1 つしか置けず、Android 向けを入れた時点で Windows 向けが消えます。
 
 ```sh
-# only when building for Android: where the NDK is (use / as separator)
+# Android 向けを作るときだけ、NDK の場所を渡す（/ 区切りで）
 export ANDROID_NDK_HOME=C:/path/to/android-ndk
 
 vcpkg install --classic --x-install-root=third_party/vcpkg_installed \
@@ -49,24 +49,24 @@ vcpkg install --classic --x-install-root=third_party/vcpkg_installed \
     libvpx:arm-neon-android opus:arm-neon-android libyuv:arm-neon-android
 ```
 
-- Windows: static libraries with the dynamic CRT (`/MD`).
-- `triplets/`: Android triplets. They differ from vcpkg's own in three ways:
-  - They build for **API 21** (vcpkg's default is 28, which fails to load on older phones).
-  - They use the static C++ runtime (`c++_static`). Your app must use it too.
-  - They name the NDK toolchain explicitly. With vcpkg 2025-06-20, the stock triplets could not find the NDK.
-- `ports/libvpx/`: a copy of vcpkg's libvpx port, changed to **use NEON on Android**. The stock port builds Android as `generic-gnu`, which is plain C with no SIMD. The changes are marked `sdlcastg:`. Copy the port again when vcpkg moves to a new libvpx.
+- Windows 向けは静的ライブラリです（CRT は動的の `/MD`）。
+- `triplets/` は Android 向けの triplet です。vcpkg の標準のものとの違いは次の 3 つです。
+  - **API 21** で作ります（標準は 28 で、それより古い端末では読み込めなくなります）。
+  - C++ の実行時ライブラリを静的（`c++_static`）にします。アプリ側も同じにしてください。
+  - NDK のツールチェーンを明示します（vcpkg 2025-06-20 では、標準の triplet だと NDK が見つかりませんでした）。
+- `ports/libvpx/` は vcpkg の libvpx の移植を写し、**Android で NEON を使う**ように直したものです。標準のものは Android を `generic-gnu`（SIMD なしの C だけ）で作ります。直したところには `sdlcastg:` と書いてあります。vcpkg の libvpx の版が上がったら、写し直してください。
 
-The first run also downloads msys2 and nasm and takes about 10 minutes.
+初回は msys2 や nasm も取ってくるので、10 分ほどかかります。
 
 ## SDL2
 
-SDL2 is needed only for the SDL layer (`sdlcastg_sdl`) and `sdlcastgdemo`. The core library (`sdlcastg`) and `castplay` do not use it. sdlcastg finds SDL2 in this order:
+SDL2 が要るのは、SDL の層（`sdlcastg_sdl`）と `sdlcastgdemo` だけです。本体（`sdlcastg`）と `castplay` は使いません。次の順に探します。
 
-1. A target named `sdl2` in the project that includes sdlcastg.
-2. Windows: the Visual C++ development package (`SDL2-devel-2.32.10-VC.zip`) extracted to `third_party/SDL2-2.32.10/`.
-3. Other platforms: `find_package(SDL2 CONFIG)`.
+1. sdlcastg を取り込んだプロジェクトの `sdl2` という名前のターゲット
+2. Windows: Visual C++ 用の開発パッケージ（`SDL2-devel-2.32.10-VC.zip`）を展開した `third_party/SDL2-2.32.10/`
+3. ほかの OS: `find_package(SDL2 CONFIG)`
 
-If none is found, the SDL layer is skipped with a message.
+どれも無ければ、SDL の層は作らずにその旨を出します。
 
 ## Windows
 
@@ -74,18 +74,18 @@ If none is found, the SDL layer is skipped with a message.
 cmake -S . -B build/win64 -A x64
 cmake --build build/win64 --config Release
 build/win64/Release/castplay.exe --list
-build/win64/Release/sdlcastgdemo.exe <IP or name> 60
+build/win64/Release/sdlcastgdemo.exe <IP か名前> 60
 ```
 
-In a Debug build, the 720p video encoder may not keep up with real time. Use Release when streaming to a device.
+Debug ビルドだと、720p の映像のエンコードが実時間に追いつかないことがあります。機器へ流して確かめるときは Release にしてください。
 
-The first run of `castplay` makes Windows Firewall ask for permission. It needs mDNS replies coming in, and the device fetching the stream from the HTTP server. If you deny it, the device never gets the stream.
+`castplay` を初めて動かすと、Windows のファイアウォールが許可を求めてきます（mDNS の応答の受け取りと、機器が HTTP サーバーへ流れを取りに来るため）。拒否すると、機器が流れを取りに来られません。
 
 ## Android
 
-As part of an app, add sdlcastg to the app's CMake with `add_subdirectory` (see README). The SDL layer uses the app's `sdl2` target.
+アプリに組み込むときは、アプリの CMake から `add_subdirectory` で取り込みます（README）。SDL の層はアプリの `sdl2` ターゲットを使います。
 
-For a standalone build (the samples run in an `adb shell`):
+単独でビルドする場合は次のとおりです（見本は `adb shell` で動かします）。
 
 ```sh
 cmake -S . -B build/android-arm64 -G Ninja \
@@ -97,24 +97,24 @@ adb push build/android-arm64/castplay /data/local/tmp/
 adb shell "cd /data/local/tmp && chmod 755 castplay && ./castplay --list"
 ```
 
-For 32-bit ARM, use `-DANDROID_ABI=armeabi-v7a -DANDROID_ARM_NEON=ON` (triplet `arm-neon-android`).
+32bit の ARM は `-DANDROID_ABI=armeabi-v7a -DANDROID_ARM_NEON=ON` です（triplet は `arm-neon-android`）。
 
-From Git Bash, set `MSYS_NO_PATHCONV=1` when passing `/data/...` to adb. Otherwise the path is rewritten to one under the Git installation.
+Git Bash から adb に `/data/...` を渡すときは、`MSYS_NO_PATHCONV=1` を付けてください。付けないと、Git のフォルダの下のパスに書き換えられます。
 
-## CMake variables
+## CMake の変数
 
-| Variable | Default | Meaning |
+| 変数 | 既定 | 意味 |
 |---|---|---|
-| `SDLCASTG_MBEDTLS_DIR` | `third_party/mbedtls-3.6.7` | mbedTLS source tree |
-| `SDLCASTG_VCPKG_INSTALLED_DIR` | `third_party/vcpkg_installed` | vcpkg install root (the parent of the triplet folders) |
-| `SDLCASTG_DEPS_DIR` | `<vcpkg installed>/<triplet>` | point directly at one triplet's folder |
-| `SDLCASTG_SDL2_ROOT` | `third_party/SDL2-2.32.10` | SDL2 for Visual C++ (Windows) |
-| `SDLCASTG_BUILD_TOOLS` | ON when built on its own, OFF when included | build the sample programs |
+| `SDLCASTG_MBEDTLS_DIR` | `third_party/mbedtls-3.6.7` | mbedTLS のソース |
+| `SDLCASTG_VCPKG_INSTALLED_DIR` | `third_party/vcpkg_installed` | vcpkg の入れ先（triplet のフォルダの親） |
+| `SDLCASTG_DEPS_DIR` | `<入れ先>/<triplet>` | 1 つの triplet のフォルダを直に指す |
+| `SDLCASTG_SDL2_ROOT` | `third_party/SDL2-2.32.10` | Visual C++ 用の SDL2（Windows） |
+| `SDLCASTG_BUILD_TOOLS` | 単独なら ON、取り込まれたら OFF | 見本を作る |
 
-A project that includes sdlcastg can set these as normal variables before `add_subdirectory`.
+sdlcastg を取り込むプロジェクトは、`add_subdirectory` の前に普通の変数として決めておけば使われます。
 
-The triplet is chosen from the platform: `x64-windows-static-md`, `arm64-android`, `arm-neon-android`, `x64-android`, or `x64-linux` (untested).
+triplet は OS から決まります: `x64-windows-static-md`、`arm64-android`、`arm-neon-android`、`x64-android`、`x64-linux`（未確認）。
 
-## Version
+## 版
 
-The version (for example `2026.0925.1`) is read from `Profile.ini` at configure time. It is written to `<build>/generated/sdlcastg_version.h` (`SDLCASTG_VERSION`, `SDLCASTG_VERSION_NUMBER`) and returned by `SDLCastG_GetVersion()`.
+版（`2026.0925.1` の形）は、configure のときに `Profile.ini` から読みます。`<ビルド先>/generated/sdlcastg_version.h`（`SDLCASTG_VERSION`、`SDLCASTG_VERSION_NUMBER`）に書き出され、`SDLCastG_GetVersion()` でも返ります。
